@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tester
+  labels:
+    getapp: tester
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      getapp: tester
+  template:
+    metadata:
+      labels:
+        getapp: tester
+    spec:
+      containers:
+      - name: tester
+        image: harbor.getapp.sh/getapp-dev/getapp-tester:1.0.0
+        ports:
+        - containerPort: 8000
+        env:
+        - name: GETAPP_USERNAME
+          value: "rony@example.com"
+        - name: GETAPP_PASSWORD
+          value: "rony123"
+        - name: BASE_URL
+          value: ""
+        - name: TEST_SCHEDULE
+          value: "'*/5 * * * *'"
+
+        resources: {}
