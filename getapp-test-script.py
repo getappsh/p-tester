@@ -67,7 +67,16 @@ class APITester:
         return bbox_list
 
     def _make_request(self, method: str, endpoint: str, json_data: Optional[Dict] = None) -> Tuple[requests.Response, bool]:
-        url = f"{self.base_url}{endpoint}"
+        # If the endpoint is a full URL, use it directly
+        if endpoint.startswith('http'):
+            url = endpoint
+        else:
+            # Ensure we don't double-slash
+            endpoint = endpoint.lstrip('/')
+            url = f"{self.base_url}/{endpoint}"
+
+        logger.info(f"Making {method} request to: {url}")  # Add this log
+        
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json"
@@ -97,7 +106,7 @@ class APITester:
                     status_code=response.status_code,
                     error_type=error_type
                 ).inc()
-                logger.error(f"Request failed: {endpoint} - Status: {response.status_code}")
+                logger.error(f"Request failed: {url} - Status: {response.status_code}")
                 return response, False
                 
             return response, True
@@ -108,11 +117,10 @@ class APITester:
                 status_code=0,
                 error_type=type(e).__name__
             ).inc()
-            logger.error(f"Request failed: {str(e)}")
+            logger.error(f"Request failed for URL {url}: {str(e)}")
             return None, False
         finally:
             active_requests.dec()
-
 
     def login(self) -> bool:
         username = os.environ.get('GETAPP_USERNAME')
@@ -282,25 +290,44 @@ class APITester:
             test_failures.labels(test_name='prepare_delivery', failure_reason='get_url_failed').inc()
             return None
 
-        return response.json().get('url')
+        url = response.json().get('url')
+        # If the URL is relative, make it absolute
+        if url and not url.startswith('http'):
+            if url.startswith('/'):
+                url = f"{self.base_url}{url}"
+            else:
+                url = f"{self.base_url}/{url}"
+        
+        logger.info(f"Prepared delivery URL: {url}")  # Add this log
+        return url
 
     def download_files(self, url: str) -> bool:
         if not url:
             test_failures.labels(test_name='download_files', failure_reason='no_url').inc()
             return False
 
-        # Download .gpkg file
-        _, success_gpkg = self._make_request('GET', url)
-        if not success_gpkg:
-            download_failures.labels(file_type='gpkg').inc()
+        logger.info(f"Attempting to download from URL: {url}")  # Add this log
 
-        # Download .json file
-        json_url = url.replace('.gpkg', '.json')
-        _, success_json = self._make_request('GET', json_url)
-        if not success_json:
-            download_failures.labels(file_type='json').inc()
+        try:
+            # Download .gpkg file
+            _, success_gpkg = self._make_request('GET', url)
+            if not success_gpkg:
+                logger.error(f"Failed to download .gpkg file from {url}")
+                download_failures.labels(file_type='gpkg').inc()
 
-        return success_gpkg and success_json
+            # Download .json file
+            json_url = url.replace('.gpkg', '.json')
+            logger.info(f"Attempting to download JSON from URL: {json_url}")  # Add this log
+            _, success_json = self._make_request('GET', json_url)
+            if not success_json:
+                logger.error(f"Failed to download .json file from {json_url}")
+                download_failures.labels(file_type='json').inc()
+
+            return success_gpkg and success_json
+
+        except Exception as e:
+            logger.error(f"Exception during download: {str(e)}")
+            return False
 
     def update_inventory(self) -> bool:
         inventory_data = {
