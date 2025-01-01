@@ -63,7 +63,7 @@ jobs:
       - name: Build image and push to Docker Hub and GitHub Container Registry
         uses: docker/build-push-action@v5
         with:
-          # path to the Dockerfile
+          ## path to the Dockerfile
           file: Dockerfile
           context: .
           tags: ${{ secrets.REGISTRY_URL }}/getapp-dev/p-tester:${{ needs.calculate_new_tag.outputs.tag }}
