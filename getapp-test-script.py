@@ -39,6 +39,8 @@ request_counter = Counter('getapp_requests_total', 'Total API requests', ['endpo
 request_latency = Histogram('getapp_request_duration_seconds', 'Request latency in seconds', ['endpoint'])
 active_requests = Gauge('getapp_active_requests', 'Number of active requests')
 request_size = Summary('getapp_request_size_bytes', 'Request size in bytes')
+# Add the new endpoint test status metric
+endpoint_test_status = Counter('getapp_endpoint_test_status_total', 'Endpoint test status', ['endpoint', 'status'])
 
 # Failure metrics
 failed_requests = Counter('getapp_failed_requests_total', 'Total failed requests', ['endpoint', 'status_code', 'error_type'])
@@ -55,290 +57,263 @@ class APITester:
         self.bbox_array = self._generate_bbox_array()
         self.current_import_request_id = None
 
-    def _generate_bbox_array(self) -> List[str]:
-        def random_digit():
-            return str(random.randint(0, 9))
+    def _record_test_status(self, endpoint: str, success: bool):
+        """Record the success/failure status for an endpoint test"""
+        status = 'success' if success else 'failure'
+        endpoint_test_status.labels(endpoint=endpoint, status=status).inc()
 
-        bbox_list = []
-        for _ in range(self.number_of_unique_maps):
-            bbox = f"34.472849{random_digit()}{random_digit()},31.519675{random_digit()}{random_digit()}"
-            bbox += f",34.476277{random_digit()}{random_digit()},31.522433{random_digit()}{random_digit()}"
-            bbox_list.append(bbox)
-        return bbox_list
-
-    def _make_request(self, method: str, endpoint: str, json_data: Optional[Dict] = None) -> Tuple[requests.Response, bool]:
-        # If the endpoint is a full URL, use it directly
-        if endpoint.startswith('http'):
-            url = endpoint
-        else:
-            # Ensure we don't double-slash
-            endpoint = endpoint.lstrip('/')
-            url = f"{self.base_url}/{endpoint}"
-
-        logger.info(f"Making {method} request to: {url}")  # Add this log
-        
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }
-        
-        if self.auth_token:
-            headers["Authorization"] = f"Bearer {self.auth_token}"
-
-        active_requests.inc()
-        start_time = time.time()
-        
-        try:
-            if method.upper() == 'GET':
-                response = requests.get(url, headers=headers)
-            else:
-                response = requests.post(url, headers=headers, json=json_data)
-                if json_data:
-                    request_size.observe(len(json.dumps(json_data)))
-
-            request_counter.labels(endpoint=endpoint, method=method).inc()
-            request_latency.labels(endpoint=endpoint).observe(time.time() - start_time)
-            
-            if response.status_code >= 400:
-                error_type = 'client_error' if response.status_code < 500 else 'server_error'
-                failed_requests.labels(
-                    endpoint=endpoint,
-                    status_code=response.status_code,
-                    error_type=error_type
-                ).inc()
-                logger.error(f"Request failed: {url} - Status: {response.status_code}")
-                return response, False
-                
-            return response, True
-            
-        except requests.exceptions.RequestException as e:
-            failed_requests.labels(
-                endpoint=endpoint,
-                status_code=0,
-                error_type=type(e).__name__
-            ).inc()
-            logger.error(f"Request failed for URL {url}: {str(e)}")
-            return None, False
-        finally:
-            active_requests.dec()
-
+    # Rest of the methods with added status recording
     def login(self) -> bool:
-        username = os.environ.get('GETAPP_USERNAME')
-        password = os.environ.get('GETAPP_PASSWORD')
-        
-        if not username or not password:
-            raise ValueError("Missing required environment variables LOGIN_USERNAME or LOGIN_PASSWORD")
+        success = False
+        try:
+            username = os.environ.get('GETAPP_USERNAME')
+            password = os.environ.get('GETAPP_PASSWORD')
             
-        response, success = self._make_request(
-            'POST',
-            '/api/login',
-            {
-                "username": username,
-                "password": password
-            }
-        )
-        
-        if success and response:
-            self.auth_token = response.json().get('accessToken')
-            return True
-        
-        test_failures.labels(test_name='login', failure_reason='auth_failed').inc()
-        return False
+            if not username or not password:
+                raise ValueError("Missing required environment variables LOGIN_USERNAME or LOGIN_PASSWORD")
+                
+            response, success = self._make_request(
+                'POST',
+                '/api/login',
+                {
+                    "username": username,
+                    "password": password
+                }
+            )
+            
+            if success and response:
+                self.auth_token = response.json().get('accessToken')
+                success = True
+            else:
+                test_failures.labels(test_name='login', failure_reason='auth_failed').inc()
+                success = False
+        finally:
+            self._record_test_status('login', success)
+            return success
 
     def discovery(self) -> bool:
-        discovery_data = {
-            "discoveryType": "get-map",
-            "general": {
-                "personalDevice": {
-                    "name": "user-1",
-                    "idNumber": "idNumber-123",
-                    "personalNumber": "personalNumber-123"
+        success = False
+        try:
+            discovery_data = {
+                "discoveryType": "get-map",
+                "general": {
+                    "personalDevice": {
+                        "name": "user-1",
+                        "idNumber": "idNumber-123",
+                        "personalNumber": "personalNumber-123"
+                    },
+                    "situationalDevice": {
+                        "weather": 23,
+                        "bandwidth": 30,
+                        "time": datetime.now().isoformat(),
+                        "operativeState": True,
+                        "power": 94,
+                        "location": {"lat": "33.4", "long": "23.3", "alt": "344"}
+                    },
+                    "physicalDevice": {
+                        "OS": "android",
+                        "MAC": "00-B0-D0-63-C2-26",
+                        "IP": "129.2.3.4",
+                        "ID": self.device_id,
+                        "serialNumber": self.device_id,
+                        "possibleBandwidth": "Yes",
+                        "availableStorage": "38142328832"
+                    }
                 },
-                "situationalDevice": {
-                    "weather": 23,
-                    "bandwidth": 30,
-                    "time": datetime.now().isoformat(),
-                    "operativeState": True,
-                    "power": 94,
-                    "location": {"lat": "33.4", "long": "23.3", "alt": "344"}
+                "softwareData": {
+                    "formation": "yatush",
+                    "platform": {
+                        "name": "Olar",
+                        "platformNumber": "1",
+                        "virtualSize": 0,
+                        "components": []
+                    }
                 },
-                "physicalDevice": {
-                    "OS": "android",
-                    "MAC": "00-B0-D0-63-C2-26",
-                    "IP": "129.2.3.4",
-                    "ID": self.device_id,
-                    "serialNumber": self.device_id,
-                    "possibleBandwidth": "Yes",
-                    "availableStorage": "38142328832"
+                "mapData": {
+                    "productId": "dummy product",
+                    "productName": "no-name",
+                    "productVersion": "3",
+                    "productType": "osm",
+                    "description": "bla-bla",
+                    "boundingBox": "1,2,3,4",
+                    "crs": "WGS84",
+                    "imagingTimeStart": datetime.now().isoformat(),
+                    "imagingTimeEnd": datetime.now().isoformat(),
+                    "creationDate": datetime.now().isoformat(),
+                    "source": "DJI Mavic",
+                    "classification": "raster",
+                    "compartmentalization": "N/A",
+                    "region": "ME",
+                    "sensor": "CCD",
+                    "precisionLevel": "3.14",
+                    "resolution": "0.12"
                 }
-            },
-            "softwareData": {
-                "formation": "yatush",
-                "platform": {
-                    "name": "Olar",
-                    "platformNumber": "1",
-                    "virtualSize": 0,
-                    "components": []
-                }
-            },
-            "mapData": {
-                "productId": "dummy product",
-                "productName": "no-name",
-                "productVersion": "3",
-                "productType": "osm",
-                "description": "bla-bla",
-                "boundingBox": "1,2,3,4",
-                "crs": "WGS84",
-                "imagingTimeStart": datetime.now().isoformat(),
-                "imagingTimeEnd": datetime.now().isoformat(),
-                "creationDate": datetime.now().isoformat(),
-                "source": "DJI Mavic",
-                "classification": "raster",
-                "compartmentalization": "N/A",
-                "region": "ME",
-                "sensor": "CCD",
-                "precisionLevel": "3.14",
-                "resolution": "0.12"
             }
-        }
-        
-        _, success = self._make_request('POST', '/api/device/discover', discovery_data)
-        if not success:
-            test_failures.labels(test_name='discovery', failure_reason='api_error').inc()
-        return success
+            
+            _, success = self._make_request('POST', '/api/device/discover', discovery_data)
+            if not success:
+                test_failures.labels(test_name='discovery', failure_reason='api_error').inc()
+        finally:
+            self._record_test_status('discovery', success)
+            return success
 
     def import_map(self) -> bool:
-        bbox = random.choice(self.bbox_array)
-        import_data = {
-            "deviceId": self.device_id,
-            "mapProperties": {
-                "productName": "python-test",
-                "productId": "python-test",
-                "zoomLevel": 12,
-                "boundingBox": bbox,
-                "targetResolution": 0,
-                "lastUpdateAfter": 0
+        success = False
+        try:
+            bbox = random.choice(self.bbox_array)
+            import_data = {
+                "deviceId": self.device_id,
+                "mapProperties": {
+                    "productName": "python-test",
+                    "productId": "python-test",
+                    "zoomLevel": 12,
+                    "boundingBox": bbox,
+                    "targetResolution": 0,
+                    "lastUpdateAfter": 0
+                }
             }
-        }
-        
-        response, success = self._make_request('POST', '/api/map/import/create', import_data)
-        if success and response:
-            self.current_import_request_id = response.json().get('importRequestId')
-            return self.update_download_status(self.current_import_request_id)
-        
-        test_failures.labels(test_name='import_map', failure_reason='create_failed').inc()
-        return False
+            
+            response, success = self._make_request('POST', '/api/map/import/create', import_data)
+            if success and response:
+                self.current_import_request_id = response.json().get('importRequestId')
+                success = self.update_download_status(self.current_import_request_id)
+            else:
+                test_failures.labels(test_name='import_map', failure_reason='create_failed').inc()
+        finally:
+            self._record_test_status('import_map', success)
+            return success
 
     def check_import_status(self) -> str:
-        if not self.current_import_request_id:
-            test_failures.labels(test_name='import_status', failure_reason='no_request_id').inc()
-            return 'Error'
+        success = False
+        try:
+            if not self.current_import_request_id:
+                test_failures.labels(test_name='import_status', failure_reason='no_request_id').inc()
+                return 'Error'
 
-        response, success = self._make_request(
-            'GET',
-            f'/api/map/import/status/{self.current_import_request_id}'
-        )
-        
-        if not success or not response:
-            import_status_failures.labels(status='api_error').inc()
-            return 'Error'
+            response, success = self._make_request(
+                'GET',
+                f'/api/map/import/status/{self.current_import_request_id}'
+            )
+            
+            if not success or not response:
+                import_status_failures.labels(status='api_error').inc()
+                return 'Error'
 
-        status = response.json().get('status')
-        if status not in ['Done', 'Error']:
-            import_status_failures.labels(status=status).inc()
-        
-        return status
+            status = response.json().get('status')
+            if status not in ['Done', 'Error']:
+                import_status_failures.labels(status=status).inc()
+            
+            success = status != 'Error'
+            return status
+        finally:
+            self._record_test_status('check_import_status', success)
 
     def update_download_status(self, catalog_id: str, status: str = "Start") -> bool:
-        data = {
-            "deviceId": self.device_id,
-            "catalogId": catalog_id,
-            "downloadStart": datetime.now().isoformat(),
-            "bitNumber": 0,
-            "downloadData": 32,
-            "currentTime": datetime.now().isoformat(),
-            "deliveryStatus": status,
-            "type": "map"
-        }
-        
-        _, success = self._make_request('POST', '/api/delivery/updateDownloadStatus', data)
-        if not success:
-            test_failures.labels(
-                test_name='update_download_status',
-                failure_reason=f'status_update_failed_{status}'
-            ).inc()
-        return success
+        success = False
+        try:
+            data = {
+                "deviceId": self.device_id,
+                "catalogId": catalog_id,
+                "downloadStart": datetime.now().isoformat(),
+                "bitNumber": 0,
+                "downloadData": 32,
+                "currentTime": datetime.now().isoformat(),
+                "deliveryStatus": status,
+                "type": "map"
+            }
+            
+            _, success = self._make_request('POST', '/api/delivery/updateDownloadStatus', data)
+            if not success:
+                test_failures.labels(
+                    test_name='update_download_status',
+                    failure_reason=f'status_update_failed_{status}'
+                ).inc()
+        finally:
+            self._record_test_status('update_download_status', success)
+            return success
 
     def prepare_delivery(self) -> Optional[str]:
-        prepare_data = {
-            "catalogId": self.current_import_request_id,
-            "deviceId": self.device_id,
-            "itemType": "map"
-        }
-        
-        _, success = self._make_request('POST', '/api/delivery/prepareDelivery', prepare_data)
-        if not success:
-            test_failures.labels(test_name='prepare_delivery', failure_reason='preparation_failed').inc()
-            return None
+        success = False
+        url = None
+        try:
+            prepare_data = {
+                "catalogId": self.current_import_request_id,
+                "deviceId": self.device_id,
+                "itemType": "map"
+            }
+            
+            _, success = self._make_request('POST', '/api/delivery/prepareDelivery', prepare_data)
+            if not success:
+                test_failures.labels(test_name='prepare_delivery', failure_reason='preparation_failed').inc()
+                return None
 
-        response, success = self._make_request(
-            'GET',
-            f'/api/delivery/preparedDelivery/{self.current_import_request_id}'
-        )
-        
-        if not success or not response:
-            test_failures.labels(test_name='prepare_delivery', failure_reason='get_url_failed').inc()
-            return None
+            response, success = self._make_request(
+                'GET',
+                f'/api/delivery/preparedDelivery/{self.current_import_request_id}'
+            )
+            
+            if not success or not response:
+                test_failures.labels(test_name='prepare_delivery', failure_reason='get_url_failed').inc()
+                return None
 
-        url = response.json().get('url')
-        # If the URL is relative, make it absolute
-        if url and not url.startswith('http'):
-            if url.startswith('/'):
-                url = f"{self.base_url}{url}"
-            else:
-                url = f"{self.base_url}/{url}"
-        
-        logger.info(f"Prepared delivery URL: {url}")  # Add this log
-        return url
+            url = response.json().get('url')
+            if url and not url.startswith('http'):
+                if url.startswith('/'):
+                    url = f"{self.base_url}{url}"
+                else:
+                    url = f"{self.base_url}/{url}"
+            
+            logger.info(f"Prepared delivery URL: {url}")
+            success = url is not None
+            return url
+        finally:
+            self._record_test_status('prepare_delivery', success)
 
     def download_files(self, url: str) -> bool:
-        if not url:
-            test_failures.labels(test_name='download_files', failure_reason='no_url').inc()
-            return False
-
-        logger.info(f"Attempting to download from URL: {url}")  # Add this log
-
+        success = False
         try:
-            # Download .gpkg file
-            _, success_gpkg = self._make_request('GET', url)
-            if not success_gpkg:
-                logger.error(f"Failed to download .gpkg file from {url}")
-                download_failures.labels(file_type='gpkg').inc()
+            if not url:
+                test_failures.labels(test_name='download_files', failure_reason='no_url').inc()
+                return False
 
-            # Download .json file
-            json_url = url.replace('.gpkg', '.json')
-            logger.info(f"Attempting to download JSON from URL: {json_url}")  # Add this log
-            _, success_json = self._make_request('GET', json_url)
-            if not success_json:
-                logger.error(f"Failed to download .json file from {json_url}")
-                download_failures.labels(file_type='json').inc()
+            logger.info(f"Attempting to download from URL: {url}")
 
-            return success_gpkg and success_json
+            try:
+                _, success_gpkg = self._make_request('GET', url)
+                if not success_gpkg:
+                    logger.error(f"Failed to download .gpkg file from {url}")
+                    download_failures.labels(file_type='gpkg').inc()
 
-        except Exception as e:
-            logger.error(f"Exception during download: {str(e)}")
-            return False
+                json_url = url.replace('.gpkg', '.json')
+                logger.info(f"Attempting to download JSON from URL: {json_url}")
+                _, success_json = self._make_request('GET', json_url)
+                if not success_json:
+                    logger.error(f"Failed to download .json file from {json_url}")
+                    download_failures.labels(file_type='json').inc()
+
+                success = success_gpkg and success_json
+
+            except Exception as e:
+                logger.error(f"Exception during download: {str(e)}")
+                success = False
+        finally:
+            self._record_test_status('download_files', success)
+            return success
 
     def update_inventory(self) -> bool:
-        inventory_data = {
-            "deviceId": self.device_id,
-            "inventory": {self.current_import_request_id: "delivery"}
-        }
-        
-        _, success = self._make_request('POST', '/api/map/inventory/updates', inventory_data)
-        if not success:
-            test_failures.labels(test_name='update_inventory', failure_reason='update_failed').inc()
-        return success
+        success = False
+        try:
+            inventory_data = {
+                "deviceId": self.device_id,
+                "inventory": {self.current_import_request_id: "delivery"}
+            }
+            
+            _, success = self._make_request('POST', '/api/map/inventory/updates', inventory_data)
+            if not success:
+                test_failures.labels(test_name='update_inventory', failure_reason='update_failed').inc()
+        finally:
+            self._record_test_status('update_inventory', success)
+            return success
 
     def check_health(self) -> bool:
         endpoints = [
@@ -350,13 +325,18 @@ class APITester:
         
         all_healthy = True
         for endpoint in endpoints:
-            _, success = self._make_request('GET', endpoint)
-            if not success:
-                test_failures.labels(test_name='health_check', failure_reason=endpoint).inc()
-                all_healthy = False
+            success = False
+            try:
+                _, success = self._make_request('GET', endpoint)
+                if not success:
+                    test_failures.labels(test_name='health_check', failure_reason=endpoint).inc()
+                    all_healthy = False
+            finally:
+                self._record_test_status(f'health_check_{endpoint}', success)
         
         return all_healthy
 
+    # Rest of the file remains unchanged...
     def run_full_test(self):
         logger.info(f"Starting test run with device ID: {self.device_id}")
 
