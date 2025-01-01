@@ -35,16 +35,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Prometheus metrics
-request_counter = Counter('api_requests_total', 'Total API requests', ['endpoint', 'method'])
-request_latency = Histogram('api_request_duration_seconds', 'Request latency in seconds', ['endpoint'])
-active_requests = Gauge('api_active_requests', 'Number of active requests')
-request_size = Summary('api_request_size_bytes', 'Request size in bytes')
+request_counter = Counter('getapp_requests_total', 'Total API requests', ['endpoint', 'method'])
+request_latency = Histogram('getapp_request_duration_seconds', 'Request latency in seconds', ['endpoint'])
+active_requests = Gauge('getapp_active_requests', 'Number of active requests')
+request_size = Summary('getapp_request_size_bytes', 'Request size in bytes')
 
 # Failure metrics
-failed_requests = Counter('api_failed_requests_total', 'Total failed requests', ['endpoint', 'status_code', 'error_type'])
-test_failures = Counter('api_test_failures_total', 'Total test failures', ['test_name', 'failure_reason'])
-download_failures = Counter('api_download_failures_total', 'Download failures', ['file_type'])
-import_status_failures = Counter('api_import_status_failures', 'Import status failures', ['status'])
+failed_requests = Counter('getapp_failed_requests_total', 'Total failed requests', ['endpoint', 'status_code', 'error_type'])
+test_failures = Counter('getapp_test_failures_total', 'Total test failures', ['test_name', 'failure_reason'])
+download_failures = Counter('getapp_download_failures_total', 'Download failures', ['file_type'])
+import_status_failures = Counter('getapp_import_status_failures', 'Import status failures', ['status'])
 
 class APITester:
     def __init__(self):
