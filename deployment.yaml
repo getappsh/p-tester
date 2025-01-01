@@ -28,5 +28,6 @@ spec:
           value: ""
         - name: TEST_SCHEDULE
           value: "'*/5 * * * *'"
-
         resources: {}
+      serviceAccountName: anyuid-sa
+      serviceAccount: anyuid-sa
