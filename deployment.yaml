@@ -21,9 +21,9 @@ spec:
         - containerPort: 8000
         env:
         - name: GETAPP_USERNAME
-          value: "rony@example.com"
+          value: ""
         - name: GETAPP_PASSWORD
-          value: "rony123"
+          value: ""
         - name: BASE_URL
           value: ""
         - name: TEST_SCHEDULE
