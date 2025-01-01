@@ -21,4 +21,4 @@ COPY getapp-test-script.py .
 EXPOSE 8000
 
 # Run the script
-CMD ["python", "api_test_script.py"]
+CMD ["python", "getapp-test-script.py"]

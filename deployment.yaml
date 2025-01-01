@@ -16,14 +16,14 @@ spec:
     spec:
       containers:
       - name: tester
-        image: harbor.getapp.sh/getapp-dev/getapp-tester:1.0.0
+        image: harbor.getapp.sh/getapp-dev/getaChatGPTpp-tester:1.0.2
         ports:
         - containerPort: 8000
         env:
         - name: GETAPP_USERNAME
-          value: ""
+          value: "rony@example.com"
         - name: GETAPP_PASSWORD
-          value: ""
+          value: "rony123"
         - name: BASE_URL
           value: ""
         - name: TEST_SCHEDULE
