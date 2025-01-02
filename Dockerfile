@@ -11,7 +11,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the script
-COPY getapp-test-script-2.py .
+COPY getapp-test-script.py .
 
 # Set environment variables with defaults
 # ENV TEST_SCHEDULE="*/30 * * * *"
@@ -21,4 +21,4 @@ COPY getapp-test-script-2.py .
 EXPOSE 8000
 
 # Run the script
-CMD ["python", "getapp-test-script-2.py"]
+CMD ["python", "getapp-test-script.py"]
