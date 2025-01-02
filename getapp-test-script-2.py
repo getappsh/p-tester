@@ -6,7 +6,7 @@ from datetime import datetime
 from prometheus_client import start_http_server, Counter
 import os
 import logging
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 
 # Environment variables
 BASE_URL = os.getenv('BASE_URL', 'https://api-getapp-dev.apps.sr.eastus.aroapp.io').rstrip('/')
@@ -28,10 +28,22 @@ class APITester:
         self.auth_token = None
         self.device_id = f"python-{random.randint(1000, 9999)}"
         self.current_import_request_id = None
+        self.bbox_array = self._generate_bbox_array()
 
-    def _make_request(self, method: str, endpoint: str, json_data: Optional[dict] = None) -> Tuple[Optional[requests.Response], int]:
+    def _generate_bbox_array(self) -> list[str]:
+        def random_digit():
+            return str(random.randint(0, 9))
+
+        bbox_list = []
+        for _ in range(1):
+            bbox = f"34.472849{random_digit()}{random_digit()},31.519675{random_digit()}{random_digit()}"
+            bbox += f",34.476277{random_digit()}{random_digit()},31.522433{random_digit()}{random_digit()}"
+            bbox_list.append(bbox)
+        return bbox_list
+
+    def _make_request(self, method: str, endpoint: str, json_data: Optional[Dict] = None) -> Tuple[Optional[requests.Response], int]:
         """Make an API request and return the response object and 1 for success, 2 for failure."""
-        url = f"{self.base_url}/{endpoint.lstrip('/')}"
+        url = f"{self.base_url}/{endpoint.lstrip('/')}
         headers = {"Content-Type": "application/json"}
 
         if self.auth_token:
@@ -137,11 +149,84 @@ class APITester:
 
         return self._make_request('POST', '/api/device/discover', discovery_data)[1]
 
+    def import_map(self) -> int:
+        bbox = random.choice(self.bbox_array)
+        import_data = {
+            "deviceId": self.device_id,
+            "mapProperties": {
+                "productName": "python-test",
+                "productId": "python-test",
+                "zoomLevel": 12,
+                "boundingBox": bbox,
+                "targetResolution": 0,
+                "lastUpdateAfter": 0
+            }
+        }
+
+        response, status = self._make_request('POST', '/api/map/import/create', import_data)
+        if status == 1 and response:
+            self.current_import_request_id = response.json().get('importRequestId')
+            return 1
+
+        return 2
+
+    def check_import_status(self) -> int:
+        if not self.current_import_request_id:
+            logger.error("No current import request ID available.")
+            return 2
+
+        response, status = self._make_request('GET', f'/api/map/import/status/{self.current_import_request_id}')
+        if status == 1 and response:
+            import_status = response.json().get('status')
+            logger.info(f"Import status: {import_status}")
+            return 1 if import_status == 'Done' else 2
+
+        return 2
+
+    def update_download_status(self, status: str = "Start") -> int:
+        if not self.current_import_request_id:
+            logger.error("No current import request ID available.")
+            return 2
+
+        download_status_data = {
+            "deviceId": self.device_id,
+            "catalogId": self.current_import_request_id,
+            "downloadStart": datetime.now().isoformat(),
+            "deliveryStatus": status,
+            "type": "map"
+        }
+
+        _, status = self._make_request('POST', '/api/delivery/updateDownloadStatus', download_status_data)
+        return status
+
+    def prepare_delivery(self) -> int:
+        if not self.current_import_request_id:
+            logger.error("No current import request ID available.")
+            return 2
+
+        response, status = self._make_request('POST', '/api/delivery/prepareDelivery', {
+            "catalogId": self.current_import_request_id,
+            "deviceId": self.device_id,
+            "itemType": "map"
+        })
+
+        if status == 1 and response:
+            prepared_url = response.json().get('url')
+            logger.info(f"Prepared delivery URL: {prepared_url}")
+            return 1
+
+        return 2
+
     def run_tests(self):
         """Runs all API tests and logs results."""
         tests = {
             'login': self.login,
-            'discovery': self.discovery
+            'discovery': self.discovery,
+            'import_map': self.import_map,
+            'check_import_status': self.check_import_status,
+            'prepare_delivery': self.prepare_delivery,
+            'update_download_status': lambda: self.update_download_status("Start"),
+            'check_health': self.check_health
         }
 
         results = {}
