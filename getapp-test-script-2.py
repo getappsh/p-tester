@@ -43,7 +43,7 @@ class APITester:
 
     def _make_request(self, method: str, endpoint: str, json_data: Optional[Dict] = None) -> Tuple[Optional[requests.Response], int]:
         """Make an API request and return the response object and 1 for success, 2 for failure."""
-        url = f"{self.base_url}/{endpoint.lstrip('/')}
+        url = f"{self.base_url}/{endpoint.lstrip('/')}"
         headers = {"Content-Type": "application/json"}
 
         if self.auth_token:
