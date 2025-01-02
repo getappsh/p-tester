@@ -225,8 +225,7 @@ class APITester:
             'import_map': self.import_map,
             'check_import_status': self.check_import_status,
             'prepare_delivery': self.prepare_delivery,
-            'update_download_status': lambda: self.update_download_status("Start"),
-            'check_health': self.check_health
+            'update_download_status': lambda: self.update_download_status("Start")
         }
 
         results = {}
