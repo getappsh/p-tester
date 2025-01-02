@@ -20,7 +20,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Prometheus metrics
-request_counter = Counter('getapp_requests_total', 'Total API requests', ['endpoint', 'status'])
+request_counter = Counter('getapp_requests_total-python', 'Total API requests', ['endpoint', 'status'])
 
 class APITester:
     def __init__(self):
@@ -160,10 +160,14 @@ def main():
     logger.info("Prometheus metrics server started on port 8000")
 
     tester = APITester()
-    results = tester.run_tests()
+    while True:
+        results = tester.run_tests()
 
-    for test_name, result in results.items():
-        logger.info(f"Test: {test_name}, Result: {result}")
+        for test_name, result in results.items():
+            logger.info(f"Test: {test_name}, Result: {result}")
+
+        logger.info("Waiting 5 minutes before the next run...")
+        time.sleep(300)  # Wait for 5 minutes
 
 if __name__ == "__main__":
     main()
