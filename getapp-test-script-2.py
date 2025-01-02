@@ -20,7 +20,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Prometheus metrics
-request_counter = Counter('getapp_requests_total-python', 'Total API requests', ['endpoint', 'status'])
+request_counter = Counter('getapp_requests_total_python', 'Total API requests', ['endpoint', 'status'])
 
 class APITester:
     def __init__(self):
