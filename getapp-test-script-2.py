@@ -6,6 +6,7 @@ from datetime import datetime
 from prometheus_client import start_http_server, Counter
 import os
 import logging
+from typing import Optional, Tuple
 
 # Environment variables
 BASE_URL = os.getenv('BASE_URL', 'https://api-getapp-dev.apps.sr.eastus.aroapp.io').rstrip('/')
@@ -28,8 +29,8 @@ class APITester:
         self.device_id = f"python-{random.randint(1000, 9999)}"
         self.current_import_request_id = None
 
-    def _make_request(self, method: str, endpoint: str, json_data: dict = None) -> int:
-        """Make an API request and return 1 for success, 2 for failure."""
+    def _make_request(self, method: str, endpoint: str, json_data: Optional[dict] = None) -> Tuple[Optional[requests.Response], int]:
+        """Make an API request and return the response object and 1 for success, 2 for failure."""
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         headers = {"Content-Type": "application/json"}
 
@@ -45,16 +46,16 @@ class APITester:
             if 200 <= response.status_code < 300:
                 logger.info(f"Request to {endpoint} succeeded with status {response.status_code}")
                 request_counter.labels(endpoint=endpoint, status='success').inc()
-                return 1
+                return response, 1
             else:
                 logger.error(f"Request to {endpoint} failed with status {response.status_code}")
                 request_counter.labels(endpoint=endpoint, status='failure').inc()
-                return 2
+                return None, 2
 
         except requests.exceptions.RequestException as e:
             logger.error(f"Request to {endpoint} failed with exception: {str(e)}")
             request_counter.labels(endpoint=endpoint, status='exception').inc()
-            return 2
+            return None, 2
 
     def login(self) -> int:
         """Logs in to the API and returns 1 for success, 2 for failure."""
@@ -65,13 +66,13 @@ class APITester:
             logger.error("Missing required environment variables GETAPP_USERNAME or GETAPP_PASSWORD")
             return 2
 
-        response = self._make_request(
+        response, status = self._make_request(
             'POST',
             '/api/login',
             {"username": username, "password": password}
         )
 
-        if response == 1:
+        if status == 1 and response:
             self.auth_token = response.json().get('accessToken')
             return 1
         return 2
@@ -134,7 +135,7 @@ class APITester:
             }
         }
 
-        return self._make_request('POST', '/api/device/discover', discovery_data)
+        return self._make_request('POST', '/api/device/discover', discovery_data)[1]
 
     def run_tests(self):
         """Runs all API tests and logs results."""
